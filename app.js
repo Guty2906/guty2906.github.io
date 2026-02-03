@@ -14,7 +14,7 @@ const CONFIG = {
   photos: [
     { src: "assets/fotos/01.jpg", caption: "Gracias por regalarme 5 minutitos 💖" },
     { src: "assets/fotos/02.jpg", caption: "Mi lugar favorito: contigo." },
-    { src: "assets/fotos/03.jpg", caption: "Tus ojos + mi calma = perfecto." },
+    { src: "assets/fotos/03.jpg", caption: "En tus ojos encontré mi lugar favorito en el mundo." },
     { src: "assets/fotos/04.jpg", caption: "Gracias por existir en mi vida ✨" }
   ],
 
