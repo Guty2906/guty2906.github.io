@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Upload, X, Heart, Calendar } from 'lucide-react';
+import { Upload, X, Heart, Calendar, Video, Image as ImageIcon } from 'lucide-react';
+import { database } from '../firebase';
+import { ref, onValue, push, remove } from 'firebase/database';
 
 const NuestraHistoria = () => {
   const [memories, setMemories] = useState([]);
@@ -7,37 +9,51 @@ const NuestraHistoria = () => {
   const [isUploading, setIsUploading] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [newMemory, setNewMemory] = useState({ title: '', date: '' });
+  const [loading, setLoading] = useState(true);
 
-  // Cargar memorias desde localStorage al inicio
+  // Cargar memorias desde Firebase en tiempo real
   useEffect(() => {
-    const savedMemories = localStorage.getItem('memories');
-    if (savedMemories) {
-      setMemories(JSON.parse(savedMemories));
-    }
+    const memoriesRef = ref(database, 'memories');
+    
+    const unsubscribe = onValue(memoriesRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        const memoriesArray = Object.entries(data).map(([id, memory]) => ({
+          id,
+          ...memory
+        }));
+        memoriesArray.sort((a, b) => b.timestamp - a.timestamp);
+        setMemories(memoriesArray);
+      } else {
+        setMemories([]);
+      }
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
   }, []);
 
-  // Guardar memorias en localStorage cuando cambien
-  useEffect(() => {
-    if (memories.length > 0) {
-      localStorage.setItem('memories', JSON.stringify(memories));
-    }
-  }, [memories]);
-
-  // Configurar Cloudinary Upload Widget
+  // Configurar Cloudinary Upload Widget (con soporte para videos)
   const openUploadWidget = () => {
     // ⚠️ IMPORTANTE: Reemplaza estos valores con los tuyos de Cloudinary
-    const cloudName = 'dblx4jylk';  // Tu Cloud Name
-    const uploadPreset = 'nuestrahistoria';  // Tu Upload Preset
+    const cloudName = 'your_cloud_name';
+    const uploadPreset = 'your_upload_preset';
 
     if (window.cloudinary) {
       const widget = window.cloudinary.createUploadWidget(
         {
           cloudName: cloudName,
           uploadPreset: uploadPreset,
-          sources: ['local', 'camera'],
+          sources: ['local', 'camera', 'url'],
           multiple: false,
-          maxFileSize: 10000000,
-          clientAllowedFormats: ['jpg', 'jpeg', 'png', 'gif', 'webp'],
+          maxFileSize: 100000000, // 100MB para videos
+          clientAllowedFormats: [
+            // Imágenes
+            'jpg', 'jpeg', 'png', 'gif', 'webp',
+            // Videos
+            'mp4', 'mov', 'avi', 'webm', 'mkv'
+          ],
+          resourceType: 'auto', // Detecta automáticamente imagen o video
           theme: 'minimal',
           styles: {
             palette: {
@@ -57,16 +73,20 @@ const NuestraHistoria = () => {
             }
           }
         },
-        (error, result) => {
+        async (error, result) => {
           if (!error && result && result.event === 'success') {
             const newMemoryData = {
-              id: Date.now(),
-              imageUrl: result.info.secure_url,
+              url: result.info.secure_url,
+              type: result.info.resource_type, // 'image' o 'video'
               title: newMemory.title || 'Sin título',
               date: newMemory.date || new Date().toISOString().split('T')[0],
-              timestamp: Date.now()
+              timestamp: Date.now(),
+              format: result.info.format, // jpg, mp4, etc.
             };
-            setMemories(prev => [newMemoryData, ...prev]);
+            
+            const memoriesRef = ref(database, 'memories');
+            await push(memoriesRef, newMemoryData);
+            
             setNewMemory({ title: '', date: '' });
             setShowUploadModal(false);
             setIsUploading(false);
@@ -74,12 +94,14 @@ const NuestraHistoria = () => {
           if (error) {
             console.error('Error uploading:', error);
             setIsUploading(false);
+            alert('Error al subir el archivo. Inténtalo de nuevo.');
           }
         }
       );
       widget.open();
     } else {
-      alert('Por favor espera un momento mientras carga el sistema de subida de imágenes');
+      alert('Por favor espera un momento mientras carga el sistema de subida');
+      setIsUploading(false);
     }
   };
 
@@ -96,12 +118,24 @@ const NuestraHistoria = () => {
     openUploadWidget();
   };
 
-  const deleteMemory = (id) => {
+  const deleteMemory = async (id) => {
     if (window.confirm('¿Estás seguro de eliminar este recuerdo?')) {
-      setMemories(prev => prev.filter(m => m.id !== id));
+      const memoryRef = ref(database, `memories/${id}`);
+      await remove(memoryRef);
       setSelectedMemory(null);
     }
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-purple-50 to-pink-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-600">Cargando recuerdos...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-purple-50 to-pink-50">
@@ -146,7 +180,7 @@ const NuestraHistoria = () => {
               className="inline-flex items-center gap-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white px-8 py-4 rounded-full hover:shadow-xl transition-all duration-300 hover:scale-105 font-medium"
             >
               <Upload className="w-5 h-5" />
-              Subir Primera Foto
+              Subir Primera Foto o Video
             </button>
           </div>
         ) : (
@@ -157,17 +191,39 @@ const NuestraHistoria = () => {
                 onClick={() => setSelectedMemory(memory)}
                 className="group relative bg-white rounded-2xl overflow-hidden shadow-md hover:shadow-2xl transition-all duration-300 cursor-pointer hover:scale-105"
               >
-                <div className="aspect-square overflow-hidden bg-gray-100">
-                  <img
-                    src={memory.imageUrl}
-                    alt={memory.title}
-                    className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
-                  />
+                <div className="aspect-square overflow-hidden bg-gray-100 relative">
+                  {memory.type === 'video' ? (
+                    <>
+                      <video
+                        src={memory.url}
+                        className="w-full h-full object-cover"
+                        muted
+                      />
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+                        <div className="w-16 h-16 bg-white/90 rounded-full flex items-center justify-center">
+                          <Video className="w-8 h-8 text-purple-600" />
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <img
+                      src={memory.url}
+                      alt={memory.title}
+                      className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                    />
+                  )}
                 </div>
                 <div className="p-4">
-                  <h3 className="font-semibold text-gray-800 mb-1 truncate">
-                    {memory.title}
-                  </h3>
+                  <div className="flex items-center gap-2 mb-1">
+                    {memory.type === 'video' ? (
+                      <Video className="w-4 h-4 text-purple-600" />
+                    ) : (
+                      <ImageIcon className="w-4 h-4 text-pink-600" />
+                    )}
+                    <h3 className="font-semibold text-gray-800 truncate flex-1">
+                      {memory.title}
+                    </h3>
+                  </div>
                   <div className="flex items-center gap-2 text-sm text-gray-500">
                     <Calendar className="w-4 h-4" />
                     <span>{new Date(memory.date).toLocaleDateString('es-ES', { 
@@ -198,6 +254,7 @@ const NuestraHistoria = () => {
                 onClick={() => {
                   setShowUploadModal(false);
                   setNewMemory({ title: '', date: '' });
+                  setIsUploading(false);
                 }}
                 className="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center transition-colors"
               >
@@ -244,16 +301,21 @@ const NuestraHistoria = () => {
                 ) : (
                   <>
                     <Upload className="w-5 h-5" />
-                    Seleccionar Foto
+                    Seleccionar Foto o Video
                   </>
                 )}
               </button>
+              
+              <p className="text-xs text-gray-500 text-center">
+                Fotos: JPG, PNG, GIF, WEBP<br />
+                Videos: MP4, MOV, WEBM (máx. 100MB)
+              </p>
             </div>
           </div>
         </div>
       )}
 
-      {/* Image Modal */}
+      {/* Media Modal (Foto o Video) */}
       {selectedMemory && (
         <div
           className="fixed inset-0 bg-black/90 backdrop-blur-sm z-50 flex items-center justify-center p-4"
@@ -271,17 +333,33 @@ const NuestraHistoria = () => {
             </button>
             
             <div className="bg-white rounded-3xl overflow-hidden shadow-2xl">
-              <img
-                src={selectedMemory.imageUrl}
-                alt={selectedMemory.title}
-                className="w-full max-h-[70vh] object-contain bg-gray-100"
-              />
+              {selectedMemory.type === 'video' ? (
+                <video
+                  src={selectedMemory.url}
+                  controls
+                  autoPlay
+                  className="w-full max-h-[70vh] bg-gray-100"
+                />
+              ) : (
+                <img
+                  src={selectedMemory.url}
+                  alt={selectedMemory.title}
+                  className="w-full max-h-[70vh] object-contain bg-gray-100"
+                />
+              )}
               <div className="p-6">
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex-1">
-                    <h3 className="text-2xl font-bold text-gray-800 mb-2">
-                      {selectedMemory.title}
-                    </h3>
+                    <div className="flex items-center gap-2 mb-2">
+                      {selectedMemory.type === 'video' ? (
+                        <Video className="w-6 h-6 text-purple-600" />
+                      ) : (
+                        <ImageIcon className="w-6 h-6 text-pink-600" />
+                      )}
+                      <h3 className="text-2xl font-bold text-gray-800">
+                        {selectedMemory.title}
+                      </h3>
+                    </div>
                     <div className="flex items-center gap-2 text-gray-600">
                       <Calendar className="w-5 h-5" />
                       <span>{new Date(selectedMemory.date).toLocaleDateString('es-ES', {
