@@ -36,8 +36,8 @@ const NuestraHistoria = () => {
   // Configurar Cloudinary Upload Widget (con soporte para videos)
   const openUploadWidget = () => {
     // ⚠️ IMPORTANTE: Reemplaza estos valores con los tuyos de Cloudinary
-    const cloudName = 'your_cloud_name';
-    const uploadPreset = 'your_upload_preset';
+    const cloudName = 'dblx4jylk';
+    const uploadPreset = 'nuestra_historia';
 
     if (window.cloudinary) {
       const widget = window.cloudinary.createUploadWidget(
